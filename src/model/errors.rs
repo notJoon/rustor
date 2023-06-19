@@ -1,5 +1,5 @@
-use std::fmt;
 use std::error::Error;
+use std::fmt;
 
 #[derive(Debug)]
 pub enum ActorError {
@@ -8,6 +8,7 @@ pub enum ActorError {
     InvalidMessage(String),
     InvalidOperation(String),
     NotInSubscriberList(String, String),
+    LockError(String),
     DividedByZero,
 }
 
@@ -15,10 +16,15 @@ impl fmt::Display for ActorError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             ActorError::TargetActorNotFound(ref pid) => write!(f, "Target actor not found: {pid}"),
-            ActorError::TargetActorIsOffline(ref pid) => write!(f, "Target actor is offline: {pid}"),
+            ActorError::TargetActorIsOffline(ref pid) => {
+                write!(f, "Target actor is offline: {pid}")
+            }
             ActorError::InvalidMessage(ref msg) => write!(f, "Invalid message: {msg}"),
             ActorError::InvalidOperation(ref op) => write!(f, "Invalid operation: {op}"),
-            ActorError::NotInSubscriberList(ref pid1, ref pid2) => write!(f, "Actor {pid1} is not in the subscriber list of {pid2}"),
+            ActorError::NotInSubscriberList(ref pid1, ref pid2) => {
+                write!(f, "Actor {pid1} is not in the subscriber list of {pid2}")
+            }
+            ActorError::LockError(ref msg) => write!(f, "Lock error: {msg}"),
             ActorError::DividedByZero => write!(f, "Divided by zero"),
         }
     }
@@ -32,6 +38,7 @@ impl Error for ActorError {
             ActorError::InvalidMessage(_) => "Invalid message",
             ActorError::InvalidOperation(_) => "Invalid operation",
             ActorError::NotInSubscriberList(_, _) => "Actor is not in the subscriber list",
+            ActorError::LockError(_) => "Lock error",
             ActorError::DividedByZero => "Divided by zero",
         }
     }
