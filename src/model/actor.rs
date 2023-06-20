@@ -3,7 +3,7 @@ use std::{
     collections::{HashMap, VecDeque},
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, Mutex, MutexGuard, RwLock,
+        Arc, Mutex, MutexGuard, RwLock, Condvar,
     },
     thread,
     time::Duration,
@@ -159,6 +159,8 @@ pub struct Actor {
     pub value: RwLock<i32>,
     pub subs: RwLock<HashMap<usize, Arc<Actor>>>,
     pub mailbox: Mutex<VecDeque<Message>>,
+    pub condvar: Condvar,
+    pub message_processed: Mutex<bool>,
 }
 
 impl Actor {
@@ -173,6 +175,8 @@ impl Actor {
             value: RwLock::new(0),
             subs: RwLock::new(HashMap::new()),
             mailbox: Mutex::new(VecDeque::new()),
+            condvar: Condvar::new(),
+            message_processed: Mutex::new(false),
         };
 
         let actor_arc = Arc::new(actor);
@@ -204,11 +208,17 @@ impl Actor {
 
     /// Handles a message by matching its type and calling the appropriate handler
     pub fn handle_message(&self, message: Message) -> Result<(), ActorError> {
-        match message {
+        let result = match message {
             Message::Increment(n) => self.increment(n),
             Message::Decrement(n) => self.decrement(n),
             _ => Err(ActorError::InvalidMessage(message.to_string())),
-        }
+        };
+
+        let mut message_processed = self.message_processed.lock().unwrap();
+        *message_processed = true;
+        self.condvar.notify_all();
+
+        result
     }
 
     /// Add a message to the actor's mailbox

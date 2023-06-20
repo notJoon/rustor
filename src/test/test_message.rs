@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod message_handling_test {
-    use crate::model::actor::{ActorPool, self};
+    use crate::model::actor::ActorPool;
     use crate::model::message::Message;
 
     #[test]
@@ -39,12 +39,15 @@ mod message_handling_test {
             pool.send_message(id, Message::Increment(10)).unwrap();
         }
 
-        // Sleep for a while to make sure all messages are processed
-        std::thread::sleep(std::time::Duration::from_millis(100));
-
         for id in actor_ids {
             let actor_list = pool.actor_list.lock().unwrap();
             let actor = actor_list.get(&id).unwrap();
+
+            let mut message_processed = actor.message_processed.lock().unwrap();
+            while !*message_processed {
+                message_processed = actor.condvar.wait(message_processed).unwrap();
+            }
+
             let value = actor.get_value().unwrap();
             assert_eq!(value, 10);
         }
