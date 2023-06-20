@@ -5,7 +5,7 @@ mod actor_tests {
     #[test]
     fn test_create_new_actor_and_get_its_information() {
         let actors = ActorSystem::new();
-        let id = actors.add_actor();
+        let id = actors.update_actor_list();
 
         assert_eq!(id, 0);
 
