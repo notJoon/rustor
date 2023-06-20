@@ -28,7 +28,7 @@ fn cli() {
         Commands::Add { n } => {
             println!("Add {} actors", n);
             for _ in 0..n {
-                let actor = ActorPool::new().update_actor_list();
+                let actor = ActorPool::new().create_actor();
                 println!("Actor id: {}", actor);
             }
         }

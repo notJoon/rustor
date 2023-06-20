@@ -5,7 +5,7 @@ mod actor_subscribe_system_test {
     #[test]
     fn test_get_default_actor_subscribe_list() {
         let actors = ActorPool::new();
-        let id = actors.update_actor_list();
+        let id = actors.create_actor();
 
         let subscribers = actors.get_actor_subscribers(id).unwrap();
         assert_eq!(subscribers.len(), 0);
@@ -17,7 +17,7 @@ mod actor_subscribe_system_test {
         let actors = ActorPool::new();
 
         for _ in 0..n {
-            actors.update_actor_list();
+            actors.create_actor();
         }
 
         actors

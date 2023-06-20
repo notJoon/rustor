@@ -1,34 +1,52 @@
+use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::{
     collections::{HashMap, VecDeque},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Mutex, MutexGuard, RwLock,
-    }, time::Duration,
+    },
+    thread,
+    time::Duration,
 };
 
 // TODO: 액터 사용 종료시 생성된 액터들의 메모리를 해제해야 함
 // TODO: 메시지 전파 기능 구현
 
-use super::{errors::ActorError, message::{Message, self}, state::ActorState};
+use super::{
+    errors::ActorError,
+    message::{self, Message},
+    state::ActorState,
+};
 
+/// Global actor ID counter
 static ACTOR_ID: AtomicUsize = AtomicUsize::new(0);
 
-#[derive(Debug, Default)]
+/// Actor pool containing all actors and a thread pool
+#[derive(Debug)]
 pub struct ActorPool {
     pub actor_list: Mutex<HashMap<usize, Arc<Actor>>>,
+    thread_pool: ThreadPool,
 }
 
 impl ActorPool {
+    /// Create a new actor pool with a thread pool
     pub fn new() -> Self {
         Default::default()
     }
 
-    pub fn update_actor_list(&self) -> usize {
+    pub fn create_actor(&self) -> usize {
         let actor = Actor::new();
         let id = actor.id;
 
+        {
+            let actor_clone = Arc::clone(&actor);
+            self.thread_pool.install(move || {
+                actor_clone.run();
+            });
+        }
+
         let mut actor_list = self.actor_list();
-        actor_list.insert(id, Arc::new(actor));
+        actor_list.insert(id, actor);
 
         id
     }
@@ -109,7 +127,7 @@ impl ActorPool {
     }
 
     pub fn send_message(&self, actor_id: usize, message: Message) -> Result<(), ActorError> {
-        let actor_list= self.actor_list.lock().unwrap();
+        let actor_list = self.actor_list.lock().unwrap();
 
         match actor_list.get(&actor_id) {
             Some(actor) => actor.send_message(message)?,
@@ -117,6 +135,20 @@ impl ActorPool {
         }
 
         Ok(())
+    }
+}
+
+impl Default for ActorPool {
+    fn default() -> Self {
+        let thread_pool = ThreadPoolBuilder::new()
+            .num_threads(10)
+            .build()
+            .expect("Failed to create thread pool");
+
+        ActorPool {
+            actor_list: Mutex::new(HashMap::new()),
+            thread_pool,
+        }
     }
 }
 
@@ -130,19 +162,47 @@ pub struct Actor {
 }
 
 impl Actor {
-    fn new() -> Self {
+    /// Create a new actor with unique ID
+    fn new() -> Arc<Self> {
         const INC: usize = 1;
         let id = ACTOR_ID.fetch_add(INC, Ordering::SeqCst);
 
-        Actor {
+        let actor = Actor {
             id,
             state: RwLock::new(ActorState::Active),
             value: RwLock::new(0),
             subs: RwLock::new(HashMap::new()),
             mailbox: Mutex::new(VecDeque::new()),
+        };
+
+        let actor_arc = Arc::new(actor);
+
+        {
+            let actor_clone = Arc::clone(&actor_arc);
+            thread::spawn(move || {
+                actor_clone.run();
+            });
+        }
+
+        actor_arc
+    }
+
+    /// Runs the actor, processing messages from its mailbox
+    fn run(&self) {
+        loop {
+            let message = {
+                let mut mailbox = self.mailbox.lock().unwrap();
+                mailbox.pop_front()
+            };
+
+            match message {
+                Some(message) => self.handle_message(message).unwrap(),
+                None => thread::sleep(Duration::from_millis(100)),
+            }
         }
     }
 
+    /// Handles a message by matching its type and calling the appropriate handler
     pub fn handle_message(&self, message: Message) -> Result<(), ActorError> {
         match message {
             Message::Increment(n) => self.increment(n),
@@ -151,6 +211,7 @@ impl Actor {
         }
     }
 
+    /// Add a message to the actor's mailbox
     pub fn send_message(&self, message: Message) -> Result<(), ActorError> {
         let mut mailbox = self.mailbox.lock().unwrap();
         mailbox.push_back(message);
@@ -158,6 +219,7 @@ impl Actor {
         Ok(())
     }
 
+    /// Process the first message in the actor's mailbox
     pub fn process_message(&self) -> Result<(), ActorError> {
         let mut mailbox = self.mailbox.lock().unwrap();
 
