@@ -9,7 +9,7 @@ use std::{
 // TODO: 액터 사용 종료시 생성된 액터들의 메모리를 해제해야 함
 // TODO: 메시지 전파 기능 구현
 
-use super::{errors::ActorError, message::Message, state::ActorState};
+use super::{errors::ActorError, message::{Message, self}, state::ActorState};
 
 static ACTOR_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -107,6 +107,17 @@ impl ActorPool {
     fn actor_list(&self) -> MutexGuard<HashMap<usize, Arc<Actor>>> {
         self.actor_list.lock().unwrap()
     }
+
+    pub fn send_message(&self, actor_id: usize, message: Message) -> Result<(), ActorError> {
+        let actor_list= self.actor_list.lock().unwrap();
+
+        match actor_list.get(&actor_id) {
+            Some(actor) => actor.send_message(message)?,
+            None => return Err(ActorError::TargetActorNotFound(actor_id.to_string())),
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -157,11 +168,11 @@ impl Actor {
         Ok(())
     }
 
-    fn get_id(&self) -> usize {
+    pub fn get_id(&self) -> usize {
         self.id
     }
 
-    fn get_state(&self) -> Result<ActorState, ActorError> {
+    pub fn get_state(&self) -> Result<ActorState, ActorError> {
         match self.state.read() {
             Ok(state) => Ok(*state),
             Err(e) => Err(ActorError::LockError(e.to_string())),
@@ -202,9 +213,7 @@ impl Actor {
 
     fn update_subscription(&self, actor_id: usize) -> Option<Arc<Actor>> {
         let mut subs = self.subs.write().unwrap();
-        let subs = subs.remove(&actor_id);
-
-        subs
+        subs.remove(&actor_id)
     }
 
     // Message handlers
