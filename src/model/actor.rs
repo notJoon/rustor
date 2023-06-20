@@ -1,6 +1,9 @@
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{atomic::AtomicUsize, Arc, Mutex, MutexGuard},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex, MutexGuard, RwLock,
+    },
 };
 
 use super::{errors::ActorError, message::Message, state::ActorState};
@@ -19,7 +22,7 @@ impl ActorSystem {
         }
     }
 
-    pub fn add_actor(&self) -> usize {
+    pub fn update_actor_list(&self) -> usize {
         let actor = Actor::new();
         let id = actor.id;
 
@@ -32,20 +35,18 @@ impl ActorSystem {
     pub fn remove_actor(&self, actor_id: usize) -> Result<(), ActorError> {
         let mut actor_list = self.actor_list();
 
-        match actor_list.contains_key(&actor_id) {
-            true => {
-                let actor = actor_list.remove(&actor_id).unwrap();
-                let subs = actor.subs.lock().unwrap();
+        if let Some(actor) = actor_list.remove(&actor_id) {
+            let subs = actor.subs.read().unwrap();
 
-                // remove an actor from the subscription list of all other actors
-                for (_, sub) in subs.iter() {
-                    sub.update_subscription(actor_id);
-                }
-
-                Ok(())
+            // Remove the actor from the subscriber list of other actors
+            for (_, sub) in subs.iter() {
+                sub.update_subscription(actor_id);
             }
-            false => Err(ActorError::TargetActorNotFound(actor_id.to_string())),
+
+            return Ok(());
         }
+
+        Err(ActorError::TargetActorNotFound(actor_id.to_string()))
     }
 
     pub fn get_actor_state(&self, actor_id: usize) -> Result<ActorState, ActorError> {
@@ -87,7 +88,7 @@ impl ActorSystem {
             .get(&actor_id)
             .ok_or(ActorError::TargetActorNotFound(actor_id.to_string()))?;
 
-        Ok(actor.clone())
+        Ok(actor.to_owned())
     }
 
     fn actor_list(&self) -> MutexGuard<HashMap<usize, Arc<Actor>>> {
@@ -98,21 +99,22 @@ impl ActorSystem {
 #[derive(Debug)]
 pub struct Actor {
     pub id: usize,
-    pub state: Mutex<ActorState>,
-    pub value: Mutex<i32>,
-    pub subs: Mutex<HashMap<usize, Arc<Actor>>>,
+    pub state: RwLock<ActorState>,
+    pub value: RwLock<i32>,
+    pub subs: RwLock<HashMap<usize, Arc<Actor>>>,
     pub mailbox: Mutex<VecDeque<Message>>,
 }
 
 impl Actor {
     fn new() -> Self {
-        let id = ACTOR_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        const INC: usize = 1;
+        let id = ACTOR_ID.fetch_add(INC, Ordering::SeqCst);
 
         Actor {
             id,
-            state: Mutex::new(ActorState::Active),
-            value: Mutex::new(0),
-            subs: Mutex::new(HashMap::new()),
+            state: RwLock::new(ActorState::Active),
+            value: RwLock::new(0),
+            subs: RwLock::new(HashMap::new()),
             mailbox: Mutex::new(VecDeque::new()),
         }
     }
@@ -122,42 +124,46 @@ impl Actor {
     }
 
     fn get_state(&self) -> Result<ActorState, ActorError> {
-        match self.state.lock() {
+        match self.state.read() {
             Ok(state) => Ok(*state),
             Err(e) => Err(ActorError::LockError(e.to_string())),
         }
     }
 
     fn get_value(&self) -> Result<i32, ActorError> {
-        match self.value.lock() {
+        match self.value.read() {
             Ok(value) => Ok(*value),
             Err(e) => Err(ActorError::LockError(e.to_string())),
         }
     }
 
-    fn subs(&self) -> MutexGuard<HashMap<usize, Arc<Actor>>> {
-        self.subs.lock().unwrap()
-    }
-
     fn get_subscribers(&self) -> Vec<usize> {
-        let subs = self.subs();
-
-        subs.keys().map(|k| *k).collect()
+        let subs = self.subs.read().unwrap();
+        subs.keys().cloned().collect()
     }
 
-    fn add_subscriber(&self, actor: Arc<Actor>) {
-        let mut subs = self.subs();
-        subs.insert(actor.get_id(), actor);
+    fn add_subscriber(&self, actor: Arc<Actor>) -> Result<Option<Arc<Actor>>, ActorError> {
+        let mut subs = self.subs.write().unwrap();
+
+        if subs.contains_key(&actor.get_id()) {
+            return Err(ActorError::ActorAlreadyExists(actor.get_id().to_string()));
+        }
+
+        Ok(subs.insert(actor.get_id(), actor))
     }
 
-    fn remove_subscriber(&self, actor_id: usize) {
-        let mut subs = self.subs();
-        subs.remove(&actor_id);
+    fn remove_subscriber(&self, actor_id: usize) -> Result<(), ActorError> {
+        let mut subs = self.subs.write().unwrap();
+
+        if subs.contains_key(&actor_id) {
+            subs.remove(&actor_id);
+        }
+        
+        Err(ActorError::TargetActorNotFound(actor_id.to_string()))
     }
 
     fn update_subscription(&self, actor_id: usize) {
-        if self.subs().contains_key(&actor_id) {
-            self.remove_subscriber(actor_id);
-        }
+        let mut subs = self.subs.write().unwrap();
+        subs.remove(&actor_id);
     }
 }

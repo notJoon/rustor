@@ -3,6 +3,7 @@ use std::fmt;
 
 #[derive(Debug)]
 pub enum ActorError {
+    ActorAlreadyExists(String),
     TargetActorNotFound(String),
     TargetActorIsOffline(String),
     InvalidMessage(String),
@@ -15,6 +16,7 @@ pub enum ActorError {
 impl fmt::Display for ActorError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
+            ActorError::ActorAlreadyExists(ref pid) => write!(f, "Actor already exists: {pid}"),
             ActorError::TargetActorNotFound(ref pid) => write!(f, "Target actor not found: {pid}"),
             ActorError::TargetActorIsOffline(ref pid) => {
                 write!(f, "Target actor is offline: {pid}")
@@ -33,6 +35,7 @@ impl fmt::Display for ActorError {
 impl Error for ActorError {
     fn description(&self) -> &str {
         match *self {
+            ActorError::ActorAlreadyExists(_) => "Actor already exists",
             ActorError::TargetActorNotFound(_) => "Target actor not found",
             ActorError::TargetActorIsOffline(_) => "Target actor is offline",
             ActorError::InvalidMessage(_) => "Invalid message",
