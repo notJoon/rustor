@@ -3,10 +3,11 @@ use std::{
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Mutex, MutexGuard, RwLock,
-    },
+    }, time::Duration,
 };
 
 // TODO: 액터 사용 종료시 생성된 액터들의 메모리를 해제해야 함
+// TODO: 메시지 전파 기능 구현
 
 use super::{errors::ActorError, message::Message, state::ActorState};
 
@@ -131,6 +132,31 @@ impl Actor {
         }
     }
 
+    pub fn handle_message(&self, message: Message) -> Result<(), ActorError> {
+        match message {
+            Message::Increment(n) => self.increment(n),
+            Message::Decrement(n) => self.decrement(n),
+            _ => Err(ActorError::InvalidMessage(message.to_string())),
+        }
+    }
+
+    pub fn send_message(&self, message: Message) -> Result<(), ActorError> {
+        let mut mailbox = self.mailbox.lock().unwrap();
+        mailbox.push_back(message);
+
+        Ok(())
+    }
+
+    pub fn process_message(&self) -> Result<(), ActorError> {
+        let mut mailbox = self.mailbox.lock().unwrap();
+
+        if let Some(message) = mailbox.pop_front() {
+            self.handle_message(message)?;
+        }
+
+        Ok(())
+    }
+
     fn get_id(&self) -> usize {
         self.id
     }
@@ -179,5 +205,21 @@ impl Actor {
         let subs = subs.remove(&actor_id);
 
         subs
+    }
+
+    // Message handlers
+
+    fn increment(&self, n: i32) -> Result<(), ActorError> {
+        let mut value = self.value.write().unwrap();
+        *value += n;
+
+        Ok(())
+    }
+
+    fn decrement(&self, n: i32) -> Result<(), ActorError> {
+        let mut value = self.value.write().unwrap();
+        *value -= n;
+
+        Ok(())
     }
 }
