@@ -6,6 +6,8 @@ use std::{
     },
 };
 
+// TODO: 액터 사용 종료시 생성된 액터들의 메모리를 해제해야 함
+
 use super::{errors::ActorError, message::Message, state::ActorState};
 
 static ACTOR_ID: AtomicUsize = AtomicUsize::new(0);
