@@ -10,16 +10,14 @@ use super::{errors::ActorError, message::Message, state::ActorState};
 
 static ACTOR_ID: AtomicUsize = AtomicUsize::new(0);
 
-#[derive(Debug)]
-pub struct ActorSystem {
+#[derive(Debug, Default)]
+pub struct ActorPool {
     pub actor_list: Mutex<HashMap<usize, Arc<Actor>>>,
 }
 
-impl ActorSystem {
+impl ActorPool {
     pub fn new() -> Self {
-        ActorSystem {
-            actor_list: Mutex::new(HashMap::new()),
-        }
+        Default::default()
     }
 
     pub fn update_actor_list(&self) -> usize {
@@ -55,6 +53,18 @@ impl ActorSystem {
         actor.get_state()
     }
 
+    pub fn update_actor_state(&mut self, actor_id: usize) -> Result<(), ActorError> {
+        let actor = self.get_actor_info(actor_id).unwrap();
+        let mut state = actor.state.write().unwrap();
+
+        match state.clone() {
+            ActorState::Active => *state = ActorState::Inactive,
+            ActorState::Inactive => *state = ActorState::Active,
+        }
+
+        Ok(())
+    }
+
     pub fn get_actor_value(&self, actor_id: usize) -> Result<i32, ActorError> {
         let actor = self.get_actor_info(actor_id)?;
 
@@ -76,13 +86,13 @@ impl ActorSystem {
 
         for subscriber_actor_id in subscriber_actor_ids {
             let subscriber_actor = self.get_actor_info(subscriber_actor_id).unwrap();
-            target_actor.add_subscriber(subscriber_actor);
+            target_actor.add_subscriber(subscriber_actor).unwrap();
         }
 
         Ok(target_actor)
     }
 
-    fn get_actor_info(&self, actor_id: usize) -> Result<Arc<Actor>, ActorError> {
+    pub fn get_actor_info(&self, actor_id: usize) -> Result<Arc<Actor>, ActorError> {
         let actor_list = self.actor_list();
         let actor = actor_list
             .get(&actor_id)
@@ -130,19 +140,19 @@ impl Actor {
         }
     }
 
-    fn get_value(&self) -> Result<i32, ActorError> {
+    pub fn get_value(&self) -> Result<i32, ActorError> {
         match self.value.read() {
             Ok(value) => Ok(*value),
             Err(e) => Err(ActorError::LockError(e.to_string())),
         }
     }
 
-    fn get_subscribers(&self) -> Vec<usize> {
+    pub fn get_subscribers(&self) -> Vec<usize> {
         let subs = self.subs.read().unwrap();
         subs.keys().cloned().collect()
     }
 
-    fn add_subscriber(&self, actor: Arc<Actor>) -> Result<Option<Arc<Actor>>, ActorError> {
+    pub fn add_subscriber(&self, actor: Arc<Actor>) -> Result<Option<Arc<Actor>>, ActorError> {
         let mut subs = self.subs.write().unwrap();
 
         if subs.contains_key(&actor.get_id()) {
@@ -158,12 +168,14 @@ impl Actor {
         if subs.contains_key(&actor_id) {
             subs.remove(&actor_id);
         }
-        
+
         Err(ActorError::TargetActorNotFound(actor_id.to_string()))
     }
 
-    fn update_subscription(&self, actor_id: usize) {
+    fn update_subscription(&self, actor_id: usize) -> Option<Arc<Actor>> {
         let mut subs = self.subs.write().unwrap();
-        subs.remove(&actor_id);
+        let subs = subs.remove(&actor_id);
+
+        subs
     }
 }

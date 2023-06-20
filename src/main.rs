@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 
-use crate::model::actor::ActorSystem;
+use crate::model::actor::ActorPool;
 
 // https://medium.com/@ukpaiugochi0/building-a-cli-from-scratch-with-clapv3-fb9dc5938c82
 
@@ -28,23 +28,21 @@ fn cli() {
         Commands::Add { n } => {
             println!("Add {} actors", n);
             for _ in 0..n {
-                let actor = ActorSystem::new().update_actor_list();
+                let actor = ActorPool::new().update_actor_list();
                 println!("Actor id: {}", actor);
             }
         }
-        Commands::Recv { msg, actor_id } => {
-            match msg.to_ascii_uppercase() {
-                msg if msg == "STATE" => {
-                    let state = ActorSystem::new().get_actor_state(actor_id);
-                    println!("{actor_id} state: {state:?}");
-                }
-                msg if msg == "VALUE" => {
-                    let value = ActorSystem::new().get_actor_value(actor_id);
-                    println!("{actor_id} value: {value:?}", );
-                }
-                _ => println!("Invalid message"),
+        Commands::Recv { msg, actor_id } => match msg.to_ascii_uppercase() {
+            msg if msg == "STATE" => {
+                let state = ActorPool::new().get_actor_state(actor_id);
+                println!("{actor_id} state: {state:?}");
             }
-        }
+            msg if msg == "VALUE" => {
+                let value = ActorPool::new().get_actor_value(actor_id);
+                println!("{actor_id} value: {value:?}",);
+            }
+            _ => println!("Invalid message"),
+        },
     }
 }
 
