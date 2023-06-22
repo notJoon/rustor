@@ -6,7 +6,7 @@ use std::{
         Arc, Condvar, Mutex, MutexGuard, RwLock,
     },
     thread,
-    time::Duration,
+    time::Duration, os::unix::process,
 };
 
 // TODO: 액터 사용 종료시 생성된 액터들의 메모리를 해제해야 함
@@ -155,8 +155,7 @@ pub struct Actor {
     pub value: RwLock<i32>,
     pub subs: RwLock<HashMap<usize, Arc<Actor>>>,
     pub mailbox: Mutex<VecDeque<Message>>,
-    pub condvar: Condvar,
-    pub message_processed: Mutex<bool>,
+    pub processing: Mutex<(bool, Condvar)>,
 }
 
 impl Actor {
@@ -171,8 +170,7 @@ impl Actor {
             value: RwLock::new(0),
             subs: RwLock::new(HashMap::new()),
             mailbox: Mutex::new(VecDeque::new()),
-            condvar: Condvar::new(),
-            message_processed: Mutex::new(false),
+            processing: Mutex::new((false, Condvar::new()))
         };
 
         Arc::new(actor)
@@ -183,17 +181,20 @@ impl Actor {
         loop {
             let message = {
                 let mut mailbox = self.mailbox.lock().unwrap();
-
+                
+                // Wait for a message to be added to the mailbox
                 while mailbox.is_empty() {
-                    mailbox = self.condvar.wait(mailbox).unwrap();
+                    // Wait release the lock on the mailbox and blocks until a message is added
+                    let processing = self.processing.lock().unwrap();
+                    mailbox = processing.1.wait(mailbox).unwrap();
                 }
 
-                mailbox.pop_front()
+                // Pop the next message off the front of the mailbox
+                mailbox.pop_front().unwrap()
             };
 
-            match message {
-                Some(message) => self.handle_message(message).unwrap(),
-                None => thread::sleep(Duration::from_millis(100)),
+            if let Err(e) = self.handle_message(message) {
+                println!("Error handling message: {e:?}");
             }
         }
     }
@@ -205,9 +206,9 @@ impl Actor {
             Message::Decrement(n) => self.decrement(n),
             _ => Err(ActorError::InvalidMessage(message.to_string())),
         };
-        let mut message_processed = self.message_processed.lock().unwrap();
-        *message_processed = true;
-        self.condvar.notify_all();
+
+        let processing = self.processing.lock().unwrap();
+        processing.1.notify_all();
 
         result
     }
@@ -216,7 +217,10 @@ impl Actor {
     pub fn send_message(&self, message: Message) -> Result<(), ActorError> {
         let mut mailbox = self.mailbox.lock().unwrap();
         mailbox.push_back(message);
-        self.condvar.notify_one();
+        // self.processing.1.notify_one();
+
+        let processing = self.processing.lock().unwrap();
+        processing.1.notify_one();
 
         Ok(())
     }
