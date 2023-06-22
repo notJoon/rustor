@@ -3,7 +3,7 @@ use std::{
     collections::{HashMap, VecDeque},
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, Mutex, MutexGuard, RwLock, Condvar,
+        Arc, Condvar, Mutex, MutexGuard, RwLock,
     },
     thread,
     time::Duration,
@@ -12,11 +12,7 @@ use std::{
 // TODO: 액터 사용 종료시 생성된 액터들의 메모리를 해제해야 함
 // TODO: 메시지 전파 기능 구현
 
-use super::{
-    errors::ActorError,
-    message::{self, Message},
-    state::ActorState,
-};
+use super::{errors::ActorError, message::Message, state::ActorState};
 
 /// Global actor ID counter
 static ACTOR_ID: AtomicUsize = AtomicUsize::new(0);
@@ -40,12 +36,12 @@ impl ActorPool {
 
         {
             let actor_clone = Arc::clone(&actor);
-            self.thread_pool.install(move || {
+            self.thread_pool.spawn(move || {
                 actor_clone.run();
             });
         }
 
-        let mut actor_list = self.actor_list();
+        let mut actor_list = self.actor_list.lock().unwrap();
         actor_list.insert(id, actor);
 
         id
@@ -179,16 +175,7 @@ impl Actor {
             message_processed: Mutex::new(false),
         };
 
-        let actor_arc = Arc::new(actor);
-
-        {
-            let actor_clone = Arc::clone(&actor_arc);
-            thread::spawn(move || {
-                actor_clone.run();
-            });
-        }
-
-        actor_arc
+        Arc::new(actor)
     }
 
     /// Runs the actor, processing messages from its mailbox
@@ -196,6 +183,11 @@ impl Actor {
         loop {
             let message = {
                 let mut mailbox = self.mailbox.lock().unwrap();
+
+                while mailbox.is_empty() {
+                    mailbox = self.condvar.wait(mailbox).unwrap();
+                }
+
                 mailbox.pop_front()
             };
 
@@ -213,7 +205,6 @@ impl Actor {
             Message::Decrement(n) => self.decrement(n),
             _ => Err(ActorError::InvalidMessage(message.to_string())),
         };
-
         let mut message_processed = self.message_processed.lock().unwrap();
         *message_processed = true;
         self.condvar.notify_all();
@@ -225,6 +216,7 @@ impl Actor {
     pub fn send_message(&self, message: Message) -> Result<(), ActorError> {
         let mut mailbox = self.mailbox.lock().unwrap();
         mailbox.push_back(message);
+        self.condvar.notify_one();
 
         Ok(())
     }
