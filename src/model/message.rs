@@ -4,6 +4,9 @@ use std::fmt;
 pub enum Message {
     Increment(i32),
     Decrement(i32),
+    Multiply(i32),
+    Divide(i32),
+    Exit,
 }
 
 impl fmt::Display for Message {
@@ -11,6 +14,9 @@ impl fmt::Display for Message {
         match *self {
             Message::Increment(n) => write!(f, "Increment({})", n),
             Message::Decrement(n) => write!(f, "Decrement({})", n),
+            Message::Multiply(n) => write!(f, "Multiply({})", n),
+            Message::Divide(n) => write!(f, "Divide({})", n),
+            Message::Exit => write!(f, "Exit"),
         }
     }
 }

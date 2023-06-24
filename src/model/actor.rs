@@ -5,12 +5,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc, Condvar, Mutex, MutexGuard, RwLock,
     },
-    thread,
-    time::Duration, os::unix::process,
 };
-
-// TODO: 액터 사용 종료시 생성된 액터들의 메모리를 해제해야 함
-// TODO: 메시지 전파 기능 구현
 
 use super::{errors::ActorError, message::Message, state::ActorState};
 
@@ -50,13 +45,20 @@ impl ActorPool {
     pub fn remove_actor(&self, actor_id: usize) -> Result<(), ActorError> {
         let mut actor_list = self.actor_list();
 
-        if let Some(actor) = actor_list.remove(&actor_id) {
-            let subs = actor.subs.read().unwrap();
+        // if let Some(actor) = actor_list.remove(&actor_id) {
+        //     let subs = actor.subs.read().unwrap();
 
-            // Remove the actor from the subscriber list of other actors
-            for (_, sub) in subs.iter() {
-                sub.update_subscription(actor_id);
-            }
+        //     // Remove the actor from the subscriber list of other actors
+        //     for (_, sub) in subs.iter() {
+        //         sub.update_subscription(actor_id);
+        //     }
+
+        //     return Ok(());
+        // }
+
+        if let Some(i) = actor_list.iter().position(|actor| actor.1.id == actor_id) {
+            let actor = actor_list.remove(&i).unwrap();
+            actor.send_message(Message::Exit).unwrap();
 
             return Ok(());
         }
@@ -122,13 +124,13 @@ impl ActorPool {
         self.actor_list.lock().unwrap()
     }
 
-    pub fn send_message(&self, actor_id: usize, message: Message) -> Result<(), ActorError> {
-        let actor_list = self.actor_list.lock().unwrap();
+    pub fn message_loop(&self, actor_id: usize, message: Message) -> Result<(), ActorError> {
+        let actor = self.get_actor_info(actor_id)?;
 
-        match actor_list.get(&actor_id) {
-            Some(actor) => actor.send_message(message)?,
-            None => return Err(ActorError::TargetActorNotFound(actor_id.to_string())),
-        }
+        actor.send_message(message)?;
+
+        let processing = actor.processing.lock().unwrap();
+        processing.1.notify_all();
 
         Ok(())
     }
@@ -170,7 +172,7 @@ impl Actor {
             value: RwLock::new(0),
             subs: RwLock::new(HashMap::new()),
             mailbox: Mutex::new(VecDeque::new()),
-            processing: Mutex::new((false, Condvar::new()))
+            processing: Mutex::new((false, Condvar::new())),
         };
 
         Arc::new(actor)
@@ -181,7 +183,7 @@ impl Actor {
         loop {
             let message = {
                 let mut mailbox = self.mailbox.lock().unwrap();
-                
+
                 // Wait for a message to be added to the mailbox
                 while mailbox.is_empty() {
                     // Wait release the lock on the mailbox and blocks until a message is added
@@ -196,6 +198,9 @@ impl Actor {
             if let Err(e) = self.handle_message(message) {
                 println!("Error handling message: {e:?}");
             }
+
+            let processing = self.processing.lock().unwrap();
+            processing.1.notify_all();
         }
     }
 
@@ -204,6 +209,10 @@ impl Actor {
         let result = match message {
             Message::Increment(n) => self.increment(n),
             Message::Decrement(n) => self.decrement(n),
+            Message::Exit => {
+                self.exit();
+                Ok(())
+            }
             _ => Err(ActorError::InvalidMessage(message.to_string())),
         };
 
@@ -217,7 +226,6 @@ impl Actor {
     pub fn send_message(&self, message: Message) -> Result<(), ActorError> {
         let mut mailbox = self.mailbox.lock().unwrap();
         mailbox.push_back(message);
-        // self.processing.1.notify_one();
 
         let processing = self.processing.lock().unwrap();
         processing.1.notify_one();
@@ -230,7 +238,13 @@ impl Actor {
         let mut mailbox = self.mailbox.lock().unwrap();
 
         if let Some(message) = mailbox.pop_front() {
-            self.handle_message(message)?;
+            let result = self.handle_message(message);
+
+            let mut message_processed = self.processing.lock().unwrap();
+            message_processed.0 = true;
+            message_processed.1.notify_all();
+
+            return result;
         }
 
         Ok(())
@@ -252,6 +266,13 @@ impl Actor {
             Ok(value) => Ok(*value),
             Err(e) => Err(ActorError::LockError(e.to_string())),
         }
+    }
+
+    pub fn set_value(&self, value: i32) -> Result<(), ActorError> {
+        let mut value_lock = self.value.write().unwrap();
+        *value_lock = value;
+
+        Ok(())
     }
 
     pub fn get_subscribers(&self) -> Vec<usize> {
@@ -287,16 +308,21 @@ impl Actor {
     // Message handlers
 
     fn increment(&self, n: i32) -> Result<(), ActorError> {
-        let mut value = self.value.write().unwrap();
-        *value += n;
+        let mut value = self.get_value()?;
+        value += n;
 
-        Ok(())
+        self.set_value(value)
     }
 
     fn decrement(&self, n: i32) -> Result<(), ActorError> {
-        let mut value = self.value.write().unwrap();
-        *value -= n;
+        let mut value = self.get_value()?;
+        value -= n;
 
-        Ok(())
+        self.set_value(value)
+    }
+
+    pub fn exit(&self) {
+        let mut state = self.state.write().unwrap();
+        *state = ActorState::Inactive;
     }
 }
