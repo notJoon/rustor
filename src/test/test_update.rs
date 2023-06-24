@@ -5,7 +5,7 @@ mod actor_update_tests {
     #[test]
     fn test_update_actor_state() {
         let mut actors = ActorPool::new();
-        let id = actors.update_actor_list();
+        let id = actors.create_actor();
 
         assert_eq!(id, 0);
 

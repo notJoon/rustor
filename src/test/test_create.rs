@@ -6,7 +6,7 @@ mod actor_create_tests {
     fn test_create_multiple_actors_get_its_values() {
         for i in 0..10 {
             let actors = ActorPool::new();
-            let id = actors.update_actor_list();
+            let id = actors.create_actor();
 
             assert_eq!(id, i);
 
