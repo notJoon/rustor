@@ -43,11 +43,26 @@ mod message_handling_test {
             let value = pool.get_actor_value(*actor_id).unwrap();
 
             println!("id: {}, value: {}", actor_id, value);
-            
-            // if actor_id % 2 == 0 {
-            //     assert_eq!(value, 10);
-            // }
-            // assert_eq!(value, 0);
+
+            if actor_id % 2 == 0 {
+                assert_eq!(value, 10);
+            }
+            assert_eq!(value, 0);
         }
+    }
+
+    #[test]
+    fn test_message_propagation() {
+        let pool = ActorPool::new();
+
+        let actor_ids: Vec<usize> = (0..10).map(|_| pool.create_actor()).collect();
+        let target_actor_id = actor_ids[0];
+
+        let subscriber_actor_ids = actor_ids[1..5].to_vec();
+
+        pool.subscribe(target_actor_id, subscriber_actor_ids)
+            .unwrap();
+
+        // TODO: Message propagation test
     }
 }

@@ -45,20 +45,8 @@ impl ActorPool {
     pub fn remove_actor(&self, actor_id: usize) -> Result<(), ActorError> {
         let mut actor_list = self.actor_list();
 
-        // if let Some(actor) = actor_list.remove(&actor_id) {
-        //     let subs = actor.subs.read().unwrap();
-
-        //     // Remove the actor from the subscriber list of other actors
-        //     for (_, sub) in subs.iter() {
-        //         sub.update_subscription(actor_id);
-        //     }
-
-        //     return Ok(());
-        // }
-
         if let Some(i) = actor_list.iter().position(|actor| actor.1.id == actor_id) {
-            let actor = actor_list.remove(&i).unwrap();
-            actor.send_message(Message::Exit).unwrap();
+            actor_list.remove(&i).unwrap();
 
             return Ok(());
         }
@@ -73,10 +61,10 @@ impl ActorPool {
     }
 
     pub fn update_actor_state(&mut self, actor_id: usize) -> Result<(), ActorError> {
-        let actor = self.get_actor_info(actor_id).unwrap();
+        let actor = self.get_actor_info(actor_id)?;
         let mut state = actor.state.write().unwrap();
 
-        match state.clone() {
+        match state.to_owned() {
             ActorState::Active => *state = ActorState::Inactive,
             ActorState::Inactive => *state = ActorState::Active,
         }
@@ -209,10 +197,6 @@ impl Actor {
         let result = match message {
             Message::Increment(n) => self.increment(n),
             Message::Decrement(n) => self.decrement(n),
-            Message::Exit => {
-                self.exit();
-                Ok(())
-            }
             _ => Err(ActorError::InvalidMessage(message.to_string())),
         };
 
@@ -245,6 +229,25 @@ impl Actor {
             message_processed.1.notify_all();
 
             return result;
+        }
+
+        Ok(())
+    }
+
+    /// Propagates a message to all subscribers of the target actor
+    pub fn message_propagation(&self, message: Message, actor_id: usize) -> Result<(), ActorError> {
+        if self.get_state()? != ActorState::Active {
+            return Err(ActorError::TargetActorIsOffline(actor_id.to_string()));
+        }
+
+        if self.get_subscribers().is_empty() {
+            return Ok(());
+        }
+
+        let subs = self.subs.read().unwrap();
+
+        for (_, actor) in subs.iter() {
+            actor.send_message(message.clone())?;
         }
 
         Ok(())
@@ -319,10 +322,5 @@ impl Actor {
         value -= n;
 
         self.set_value(value)
-    }
-
-    pub fn exit(&self) {
-        let mut state = self.state.write().unwrap();
-        *state = ActorState::Inactive;
     }
 }
