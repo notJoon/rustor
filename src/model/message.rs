@@ -1,12 +1,11 @@
 use std::fmt;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Message {
     Increment(i32),
     Decrement(i32),
     Multiply(i32),
     Divide(i32),
-    Exit,
 }
 
 impl fmt::Display for Message {
@@ -16,7 +15,6 @@ impl fmt::Display for Message {
             Message::Decrement(n) => write!(f, "Decrement({})", n),
             Message::Multiply(n) => write!(f, "Multiply({})", n),
             Message::Divide(n) => write!(f, "Divide({})", n),
-            Message::Exit => write!(f, "Exit"),
         }
     }
 }

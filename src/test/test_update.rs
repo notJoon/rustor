@@ -12,13 +12,14 @@ mod actor_update_tests {
         let state = actors.get_actor_state(id).unwrap();
         assert_eq!(state, ActorState::Active);
 
-        println!("id: {}, state: {:?}", id, state);
-
         actors.update_actor_state(id).unwrap();
 
         let state = actors.get_actor_state(id).unwrap();
         assert_eq!(state, ActorState::Inactive);
 
-        println!("id: {}, state: {:?}", id, state);
+        actors.update_actor_state(id).unwrap();
+
+        let state = actors.get_actor_state(id).unwrap();
+        assert_eq!(state, ActorState::Active);
     }
 }
