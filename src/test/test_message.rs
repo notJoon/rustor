@@ -6,7 +6,7 @@ mod message_handling_test {
     use crate::model::message::Message;
 
     #[test]
-    fn test_message_passing_update_actor_value() {
+    fn test_update_actor_value() {
         let actor = ActorPool::new();
         let id = actor.create_actor();
 
@@ -27,7 +27,7 @@ mod message_handling_test {
     }
 
     #[test]
-    fn test_multiple_messages() {
+    fn test_handling_multiple_messages() {
         let actor = ActorPool::new();
         let id = actor.create_actor();
 
