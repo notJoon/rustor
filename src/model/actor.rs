@@ -1,9 +1,8 @@
-use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::{
     collections::{HashMap, VecDeque},
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, Condvar, Mutex, MutexGuard, RwLock,
+        Arc, Condvar, Mutex, RwLock,
     },
 };
 
@@ -11,18 +10,15 @@ use super::{errors::ActorError, message::Message, state::ActorState};
 
 static ACTOR_ID: AtomicUsize = AtomicUsize::new(0);
 static MAILBOX_CAPACITY: usize = 10;
-static THREADS: usize = 10;
 static INITIAL_VALUE: i32 = 0;
 
 /// Actor pool containing all actors and a thread pool
 #[derive(Debug)]
 pub struct ActorPool {
     pub actor_list: Mutex<HashMap<usize, Arc<Actor>>>,
-    thread_pool: ThreadPool,
 }
 
 impl ActorPool {
-    /// Create a new actor pool with a thread pool
     pub fn new() -> Self {
         Default::default()
     }
@@ -115,14 +111,8 @@ impl ActorPool {
 
 impl Default for ActorPool {
     fn default() -> Self {
-        let thread_pool = ThreadPoolBuilder::new()
-            .num_threads(THREADS)
-            .build()
-            .expect("Failed to create thread pool");
-
         ActorPool {
             actor_list: Mutex::new(HashMap::new()),
-            thread_pool,
         }
     }
 }
