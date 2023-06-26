@@ -11,7 +11,7 @@ pub enum ActorError {
     NotInSubscriberList(String, String),
     LockError(String),
     DividedByZero,
-    MailboxOverflow,
+    MailboxOverflow(String),
 }
 
 impl fmt::Display for ActorError {
@@ -29,7 +29,7 @@ impl fmt::Display for ActorError {
             }
             ActorError::LockError(ref msg) => write!(f, "Lock error: {msg}"),
             ActorError::DividedByZero => write!(f, "Divided by zero"),
-            ActorError::MailboxOverflow => write!(f, "Mailbox overflow"),
+            ActorError::MailboxOverflow(ref pid) => write!(f, "{pid}'s mailbox overflow"),
         }
     }
 }
@@ -45,7 +45,7 @@ impl Error for ActorError {
             ActorError::NotInSubscriberList(_, _) => "Actor is not in the subscriber list",
             ActorError::LockError(_) => "Lock error",
             ActorError::DividedByZero => "Divided by zero",
-            ActorError::MailboxOverflow => "Mailbox overflow",
+            ActorError::MailboxOverflow(_) => "Mailbox overflow",
         }
     }
 }

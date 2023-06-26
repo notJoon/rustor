@@ -6,35 +6,12 @@ mod message_handling_test {
     use crate::model::message::Message;
 
     #[test]
-    fn test_update_actor_value() {
-        let actor = ActorPool::new();
-        let id = actor.create_actor();
-
-        let value = actor.get_actor_value(id).unwrap();
-        assert_eq!(value, 0);
-
-        println!("id: {}, value: {}", id, value);
-
-        let message = Message::Increment(10);
-        actor.message_loop(id, message).unwrap();
-
-        thread::sleep(std::time::Duration::from_millis(100));
-
-        let value = actor.get_actor_value(id).unwrap();
-        assert_eq!(value, 10);
-
-        println!("id: {}, value: {}", id, value);
-    }
-
-    #[test]
     fn test_handling_multiple_messages() {
         let actor = ActorPool::new();
         let id = actor.create_actor();
 
         let value = actor.get_actor_value(id).unwrap();
         assert_eq!(value, 0);
-
-        println!("id: {}, value: {}", id, value);
 
         let increment_values = vec![10, 20, 55, 130];
         for value in increment_values {

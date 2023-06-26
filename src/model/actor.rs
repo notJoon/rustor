@@ -23,13 +23,14 @@ impl ActorPool {
         Default::default()
     }
 
+    /// Create a new actor and add it to the actor list
     pub fn create_actor(&self) -> usize {
         let actor = Actor::new();
         let id = actor.id;
         let actor_clone = Arc::clone(&actor);
 
-        // Spawn a new thread for the actor.
-        // The thread will be blocked until a message is sent to the actor.
+        // each `Actor` runs on an independent thread when it is created, 
+        // and when it receives a message, it consumes and processes the message in its own mailbox (via `Actor::execute_messages`).
         std::thread::spawn(move || {
             actor_clone.execute_messages();
         });
@@ -46,18 +47,12 @@ impl ActorPool {
         actor.get_state()
     }
 
-    pub fn get_actor_mailbox(&self, actor_id: usize) -> Result<VecDeque<Message>, ActorError> {
-        let actor = self.get_actor_info(actor_id)?;
-
-        let mailbox = actor.mailbox.lock().unwrap();
-
-        Ok(mailbox.to_owned())
-    }
-
+    // TODO: Move this to a Actor method
     pub fn update_actor_state(&mut self, actor_id: usize) -> Result<(), ActorError> {
         let actor = self.get_actor_info(actor_id)?;
         let mut state = actor.state.write().unwrap();
 
+        // Change the current state to the opposite state
         match state.to_owned() {
             ActorState::Active => *state = ActorState::Inactive,
             ActorState::Inactive => *state = ActorState::Active,
@@ -85,6 +80,7 @@ impl ActorPool {
     ) -> Result<Arc<Actor>, ActorError> {
         let target_actor = self.get_actor_info(target_actor_id).unwrap();
 
+        // Add subscribers to the target actor
         for subscriber_actor_id in subscriber_actor_ids {
             let subscriber_actor = self.get_actor_info(subscriber_actor_id).unwrap();
             target_actor.add_subscriber(subscriber_actor).unwrap();
@@ -102,6 +98,7 @@ impl ActorPool {
         Ok(actor.to_owned())
     }
 
+    /// `ActorPool::message_loop` method is used to send a message to a specific actor.
     pub fn message_loop(&self, actor_id: usize, message: Message) -> Result<(), ActorError> {
         let actor = self.get_actor_info(actor_id)?;
 
@@ -155,13 +152,15 @@ impl Actor {
         let mut mailbox = self.mailbox.lock().unwrap();
 
         if mailbox.len() >= mailbox.capacity() {
-            return Err(ActorError::MailboxOverflow);
+            return Err(ActorError::MailboxOverflow(self.id.to_string()));
         }
 
         mailbox.push_back(message.clone());
 
         self.propagate_message(message)?;
 
+        // Send a notification via `Condvar` whenever a message is added to the `mailbox`.
+        // Each time a message is added, the `execute_messages` (created via `ActorPool::create_actor`) will be woken up and process the message.
         self.condvar.notify_all();
 
         Ok(())
@@ -177,26 +176,24 @@ impl Actor {
         Ok(())
     }
 
+    /// The `execute_messages` method performs an infinite loop,
+    /// and when the `mailbox` is empty, `Condvar`(in here, `self.condvar`) waits for another message.
+    ///
+    /// When a message is added to the mailbox, `Condvar` is notified and processes the message.
+    /// This allows each actor to continuously process messages in their own thread.
     fn execute_messages(&self) {
         loop {
             let mut mailbox = self.mailbox.lock().unwrap();
 
-            // Wait for a message to be sent to the actor
+            // When the mailbox is empty, the `condvar` will wait for a notification
             if mailbox.is_empty() {
                 mailbox = self.condvar.wait(mailbox).unwrap();
             }
 
+            // Consume messages in the mailbox
             while let Some(msg) = mailbox.pop_front() {
                 self.handle_message(msg).unwrap();
             }
-        }
-    }
-
-    fn consume_message_from_mailbox(&self) {
-        let mut mailbox = self.mailbox.lock().unwrap();
-
-        if let Some(message) = mailbox.pop_front() {
-            self.handle_message(message).unwrap();
         }
     }
 
@@ -213,25 +210,25 @@ impl Actor {
         result
     }
 
-    pub fn get_id(&self) -> usize {
+    fn get_id(&self) -> usize {
         self.id
     }
 
-    pub fn get_state(&self) -> Result<ActorState, ActorError> {
+    fn get_state(&self) -> Result<ActorState, ActorError> {
         match self.state.read() {
             Ok(state) => Ok(*state),
             Err(e) => Err(ActorError::LockError(e.to_string())),
         }
     }
 
-    pub fn get_value(&self) -> Result<i32, ActorError> {
+    fn get_value(&self) -> Result<i32, ActorError> {
         match self.value.read() {
             Ok(value) => Ok(*value),
             Err(e) => Err(ActorError::LockError(e.to_string())),
         }
     }
 
-    pub fn set_value(&self, value: i32) -> Result<(), ActorError> {
+    fn set_value(&self, value: i32) -> Result<(), ActorError> {
         let mut value_lock = self.value.write().unwrap();
         *value_lock = value;
 
@@ -243,7 +240,7 @@ impl Actor {
         subs.keys().cloned().collect()
     }
 
-    pub fn add_subscriber(&self, actor: Arc<Actor>) -> Result<Option<Arc<Actor>>, ActorError> {
+    fn add_subscriber(&self, actor: Arc<Actor>) -> Result<Option<Arc<Actor>>, ActorError> {
         let mut subs = self.subs.write().unwrap();
 
         if subs.contains_key(&actor.get_id()) {
@@ -270,7 +267,7 @@ impl Actor {
 
     // Message handlers
 
-    fn update_value<F>(&self, modifier: F) -> Result<(), ActorError> 
+    fn update_value<F>(&self, modifier: F) -> Result<(), ActorError>
     where
         F: FnOnce(i32) -> Result<i32, ActorError>,
     {
@@ -286,16 +283,5 @@ impl Actor {
 
     fn decrement(&self, n: i32) -> Result<(), ActorError> {
         self.update_value(|value| Ok(value - n))
-    }
-
-    fn multiply(&self, n: i32) -> Result<(), ActorError> {
-        self.update_value(|value| Ok(value * n))
-    }
-
-    fn divide(&self, n: i32) -> Result<(), ActorError> {
-        match n {
-            0 => Err(ActorError::DividedByZero),
-            _ => self.update_value(|value| Ok(value / n)),
-        }
     }
 }
