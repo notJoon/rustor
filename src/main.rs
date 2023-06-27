@@ -18,6 +18,7 @@ struct Value {
 enum Commands {
     Add { n: u32 },
     Recv { msg: String, actor_id: usize },
+    // Send { msg: String, actor_id: usize },
 }
 
 fn cli() {

@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, VecDeque, HashSet},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Condvar, Mutex, RwLock,
@@ -47,7 +47,6 @@ impl ActorPool {
         actor.get_state()
     }
 
-    // TODO: Move this to a Actor method
     pub fn update_actor_state(&mut self, actor_id: usize) -> Result<(), ActorError> {
         let actor = self.get_actor_info(actor_id)?;
         let mut state = actor.state.write().unwrap();
@@ -103,6 +102,39 @@ impl ActorPool {
         let actor = self.get_actor_info(actor_id)?;
 
         actor.send_message(message)
+    }
+
+    /// An algorithm that uses BFS to traverse an Actor's subscription list 
+    /// to determine if there are circular references(subscribe).
+    /// 
+    /// If there is a circular reference, it returns `true`, otherwise `false`.
+    /// 
+    /// This algorithm is used to prevent circular references when subscribing to actors 
+    /// which could cause an infinite loop or actor-value
+    pub fn detect_cycle(&self, actor_id: usize) -> Result<bool, ActorError> {
+        let actor = self.get_actor_info(actor_id)?;
+
+        let mut visited = HashSet::new();
+        let mut q = VecDeque::new();
+
+        visited.insert(actor_id);
+        q.push_back(actor);
+
+        while let Some(curr_actor) = q.pop_front() {
+            let subs = curr_actor.get_subscribers();
+
+            for sub in subs {
+                if visited.contains(&sub) {
+                    return Ok(true);
+                }
+
+                let sub_actor = self.get_actor_info(sub)?;
+                q.push_back(sub_actor);
+                visited.insert(sub);
+            }
+        }
+
+        Ok(false)
     }
 }
 
@@ -202,7 +234,6 @@ impl Actor {
         let result = match message {
             Message::Increment(n) => self.increment(n),
             Message::Decrement(n) => self.decrement(n),
-            _ => Err(ActorError::InvalidMessage(message.to_string())),
         };
 
         self.condvar.notify_all();
@@ -284,4 +315,20 @@ impl Actor {
     fn decrement(&self, n: i32) -> Result<(), ActorError> {
         self.update_value(|value| Ok(value - n))
     }
+
+    fn check_circular_subscribe(&self) -> Result<bool, ActorError> {
+        let subs = self.subs.read().unwrap();
+
+        for (_, actor) in subs.iter() {
+            let actor_subs = actor.subs.read().unwrap();
+
+            if actor_subs.contains_key(&self.id) {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+
 }
