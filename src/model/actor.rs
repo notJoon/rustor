@@ -12,9 +12,11 @@ static ACTOR_ID: AtomicUsize = AtomicUsize::new(0);
 static MAILBOX_CAPACITY: usize = 10;
 static INITIAL_VALUE: i32 = 0;
 
-/// Actor pool containing all actors and a thread pool
+/// `ActorPool` is a container for actors. Also, it is provide a interface to manage actors.
 #[derive(Debug)]
 pub struct ActorPool {
+    /// `actor_list` is a container for actors.
+    /// its key is `Actor`'s id and value is `Actor` itself.
     pub actor_list: Mutex<HashMap<usize, Arc<Actor>>>,
 }
 
@@ -47,7 +49,7 @@ impl ActorPool {
         actor.get_state()
     }
 
-    pub fn update_actor_state(&mut self, actor_id: usize) -> Result<(), ActorError> {
+    pub fn update_actor_state(&self, actor_id: usize) -> Result<ActorState, ActorError> {
         let actor = self.get_actor_info(actor_id)?;
         let mut state = actor.state.write().unwrap();
 
@@ -57,7 +59,7 @@ impl ActorPool {
             ActorState::Inactive => *state = ActorState::Active,
         }
 
-        Ok(())
+        Ok(state.to_owned())
     }
 
     pub fn get_actor_value(&self, actor_id: usize) -> Result<i32, ActorError> {
@@ -155,7 +157,6 @@ pub struct Actor {
     pub mailbox: Mutex<VecDeque<Message>>,
     pub condvar: Condvar,
 }
-
 impl Actor {
     /// Create a new actor with unique ID
     fn new() -> Arc<Self> {
@@ -176,15 +177,16 @@ impl Actor {
 
     /// Add a message to the actor's mailbox
     pub fn send_message(&self, message: Message) -> Result<(), ActorError> {
-        if self.state.read().unwrap().to_owned() == ActorState::Inactive {
-            return Err(ActorError::TargetActorIsOffline(self.id.to_string()));
-        }
-
         // Check if the mailbox is full
         let mut mailbox = self.mailbox.lock().unwrap();
 
         if mailbox.len() >= mailbox.capacity() {
             return Err(ActorError::MailboxOverflow(self.id.to_string()));
+        }
+
+        // Store the message in the mailbox when the actor is inactive
+        if self.state.read().unwrap().to_owned() == ActorState::Inactive {
+            self.send_message(message.clone())?;
         }
 
         mailbox.push_back(message.clone());
@@ -246,19 +248,18 @@ impl Actor {
     }
 
     fn get_state(&self) -> Result<ActorState, ActorError> {
-        match self.state.read() {
-            Ok(state) => Ok(*state),
-            Err(e) => Err(ActorError::LockError(e.to_string())),
-        }
+        let value = self.state.read().unwrap();
+
+        Ok(value.to_owned())
     }
 
     fn get_value(&self) -> Result<i32, ActorError> {
-        match self.value.read() {
-            Ok(value) => Ok(*value),
-            Err(e) => Err(ActorError::LockError(e.to_string())),
-        }
+        let value = self.value.read().unwrap();
+
+        Ok(value.to_owned())
     }
 
+    //TODO:  I think this method chance return type to `Result<i32, ActorError>` is better.
     fn set_value(&self, value: i32) -> Result<(), ActorError> {
         let mut value_lock = self.value.write().unwrap();
         *value_lock = value;
@@ -315,20 +316,4 @@ impl Actor {
     fn decrement(&self, n: i32) -> Result<(), ActorError> {
         self.update_value(|value| Ok(value - n))
     }
-
-    fn check_circular_subscribe(&self) -> Result<bool, ActorError> {
-        let subs = self.subs.read().unwrap();
-
-        for (_, actor) in subs.iter() {
-            let actor_subs = actor.subs.read().unwrap();
-
-            if actor_subs.contains_key(&self.id) {
-                return Ok(true);
-            }
-        }
-
-        Ok(false)
-    }
-
-
 }

@@ -2,8 +2,9 @@
 mod message_handling_test {
     use std::thread;
 
-    use crate::model::actor::ActorPool;
+    use crate::model::actor::{ActorPool, Actor};
     use crate::model::message::Message;
+    use crate::model::state::ActorState;
 
     #[test]
     fn test_handling_multiple_messages() {
@@ -68,5 +69,37 @@ mod message_handling_test {
         assert_eq!(new_actor1_value, 10);
         assert_eq!(new_actor2_value, 10);
         assert_eq!(new_actor3_value, 10);
+    }
+
+    #[test]
+    fn test_send_message_to_inactive_actor() {
+        let pool = ActorPool::new();
+        let actor = pool.create_actor();
+
+        let actor_state = pool.update_actor_state(actor).unwrap();
+
+        assert_eq!(actor_state, ActorState::Inactive);
+
+        // Send message to inactive actor
+        let messages = vec![
+            Message::Increment(10),
+            Message::Increment(20),
+            Message::Increment(30),
+        ];
+        
+        for message in messages {
+            pool.message_loop(actor, message).unwrap();
+        }
+
+        thread::sleep(std::time::Duration::from_millis(100));
+
+        assert_eq!(pool.get_actor_value(actor).unwrap(), 0);
+
+        // Change the actor's state to active
+        let actor_state = pool.update_actor_state(actor).unwrap();
+        assert_eq!(actor_state, ActorState::Active);
+
+        // Read messages from the actor's mailbox and update the actor's value
+        assert_eq!(pool.get_actor_value(actor).unwrap(), 60);
     }
 }
