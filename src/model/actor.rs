@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Condvar, Mutex, RwLock,
@@ -28,10 +28,10 @@ impl ActorPool {
     /// Create a new actor and add it to the actor list
     pub fn create_actor(&self) -> usize {
         let actor = Actor::new();
-        let id = actor.id;
+        let id = actor.get_id();
         let actor_clone = Arc::clone(&actor);
 
-        // each `Actor` runs on an independent thread when it is created, 
+        // each `Actor` runs on an independent thread when it is created,
         // and when it receives a message, it consumes and processes the message in its own mailbox (via `Actor::execute_messages`).
         std::thread::spawn(move || {
             actor_clone.execute_messages();
@@ -106,14 +106,14 @@ impl ActorPool {
         actor.send_message(message)
     }
 
-    /// An algorithm that uses BFS to traverse an Actor's subscription list 
+    /// An algorithm that uses BFS to traverse an Actor's subscription list
     /// to determine if there are circular references(subscribe).
-    /// 
+    ///
     /// If there is a circular reference, it returns `true`, otherwise `false`.
-    /// 
-    /// This algorithm is used to prevent circular references when subscribing to actors 
+    ///
+    /// This algorithm is used to prevent circular references when subscribing to actors
     /// which could cause an infinite loop or actor-value
-    pub fn detect_cycle(&self, actor_id: usize) -> Result<bool, ActorError> {
+    pub fn detect_cycle_bfs(&self, actor_id: usize) -> Result<bool, ActorError> {
         let actor = self.get_actor_info(actor_id)?;
 
         let mut visited = HashSet::new();
@@ -137,6 +137,62 @@ impl ActorPool {
         }
 
         Ok(false)
+    }
+
+    pub fn detect_cycle_topological_sort(&self, actor_id: usize) -> Result<bool, ActorError> {
+        // map to store the in-degree of each actor
+        let mut in_degree: HashMap<usize, i32> = HashMap::new();
+
+        let init_actor = self.get_actor_info(actor_id)?;
+        let init_subs = init_actor.get_subscribers();
+
+        in_degree.insert(actor_id, 0);
+
+        for sub in init_subs {
+            in_degree.insert(sub, 0);
+        }
+
+        // calculate the in-degree of each node in the subset
+        for (_, actor) in self.actor_list.lock().unwrap().iter() {
+            let subs = actor.get_subscribers();
+
+            for sub in subs {
+                if let Some(degree) = in_degree.get_mut(&sub) {
+                    *degree += 1;
+                }
+
+                in_degree.insert(sub, 1);
+            }
+        }
+
+        // queue to store nodes with in-degree of 0
+        let mut q: VecDeque<usize> = VecDeque::new();
+
+        // add nodes with in-degree of 0 to the queue
+        for (id, degree) in in_degree.iter() {
+            if *degree == 0 {
+                q.push_back(*id);
+            }
+        }
+
+        while let Some(curr_id) = q.pop_front() {
+            // get current actor and its subscribers
+            let curr_actor = self.get_actor_info(curr_id)?;
+            let curr_subs = curr_actor.get_subscribers();
+
+            for sub in curr_subs {
+                if let Some(degree) = in_degree.get_mut(&sub) {
+                    *degree -= 1;
+
+                    // if in-degree becomes 0, add the subscriber to the queue
+                    if *degree == 0 {
+                        q.push_back(sub);
+                    }
+                }
+            }
+        }
+
+        Ok(in_degree.values().any(|&degree| degree != 0))
     }
 }
 
@@ -186,9 +242,10 @@ impl Actor {
 
         // Store the message in the mailbox when the actor is inactive
         if self.state.read().unwrap().to_owned() == ActorState::Inactive {
-            self.send_message(message.clone())?;
+            self.mailbox.lock().unwrap().push_back(message.clone());
         }
 
+        // If the actor is active, process the message immediately
         mailbox.push_back(message.clone());
 
         self.propagate_message(message)?;
@@ -238,6 +295,7 @@ impl Actor {
             Message::Decrement(n) => self.decrement(n),
         };
 
+        // using condvar to notify the `execute_messages` thread that the message has been processed.
         self.condvar.notify_all();
 
         result

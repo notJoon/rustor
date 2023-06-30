@@ -68,7 +68,7 @@ mod actor_subscribe_system_test {
         pool.subscribe(a2, vec![a3]).unwrap();
         pool.subscribe(a3, vec![a1]).unwrap();
 
-        let has_cycle = pool.detect_cycle(a1).unwrap();
+        let has_cycle = pool.detect_cycle_bfs(a1).unwrap();
 
         assert_eq!(has_cycle, true)
     }
@@ -84,8 +84,26 @@ mod actor_subscribe_system_test {
         pool.subscribe(a1, vec![a2]).unwrap();
         pool.subscribe(a2, vec![a3]).unwrap();
 
-        let has_cycle = pool.detect_cycle(a1).unwrap();
+        let has_cycle = pool.detect_cycle_bfs(a1).unwrap();
 
         assert_eq!(has_cycle, false)
+    }
+
+    #[test]
+    fn test_detect_cycle_with_topological_sort() {
+        let pool = ActorPool::new();
+
+        let a1 = pool.create_actor();
+        let a2 = pool.create_actor();
+        let a3 = pool.create_actor();
+
+        // Create Cycle : a1 -> a2 -> a3 -> a1
+        pool.subscribe(a1, vec![a2]).unwrap();
+        pool.subscribe(a2, vec![a3]).unwrap();
+        pool.subscribe(a3, vec![a1]).unwrap();
+
+        let has_cycle = pool.detect_cycle_topological_sort(a1).unwrap();
+
+        assert_eq!(has_cycle, true)
     }
 }

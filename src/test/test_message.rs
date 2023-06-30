@@ -2,7 +2,7 @@
 mod message_handling_test {
     use std::thread;
 
-    use crate::model::actor::{ActorPool, Actor};
+    use crate::model::actor::{Actor, ActorPool};
     use crate::model::message::Message;
     use crate::model::state::ActorState;
 
@@ -86,7 +86,7 @@ mod message_handling_test {
             Message::Increment(20),
             Message::Increment(30),
         ];
-        
+
         for message in messages {
             pool.message_loop(actor, message).unwrap();
         }
