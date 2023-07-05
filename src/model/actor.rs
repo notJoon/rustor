@@ -106,6 +106,32 @@ impl ActorPool {
         actor.send_message(message)
     }
 
+    pub fn detect_cycle_dfs(&self, actor_id: usize) -> Result<bool, ActorError> {
+        let actor = self.get_actor_info(actor_id)?;
+
+        let mut visited = HashSet::new();
+        let mut stack = Vec::new();
+
+        visited.insert(actor_id);
+        stack.push(actor);
+
+        while let Some(curr_actor) = stack.pop() {
+            let subs = curr_actor.get_subscribers();
+
+            for sub in subs {
+                if visited.contains(&sub) {
+                    return Ok(true);
+                }
+
+                let sub_actor = self.get_actor_info(sub)?;
+                stack.push(sub_actor);
+                visited.insert(sub);
+            }
+        }
+
+        Ok(false)
+    }
+
     /// An algorithm that uses BFS to traverse an Actor's subscription list
     /// to determine if there are circular references(subscribe).
     ///
@@ -348,11 +374,6 @@ impl Actor {
         }
 
         Err(ActorError::TargetActorNotFound(actor_id.to_string()))
-    }
-
-    fn update_subscription(&self, actor_id: usize) -> Option<Arc<Actor>> {
-        let mut subs = self.subs.write().unwrap();
-        subs.remove(&actor_id)
     }
 
     // Message handlers
