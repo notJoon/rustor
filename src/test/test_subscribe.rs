@@ -56,7 +56,7 @@ mod actor_subscribe_system_test {
     }
 
     #[test]
-    fn test_detect_cycle_subscribe() {
+    fn test_detect_cycle_subscribe_bfs() {
         let pool = ActorPool::new();
 
         let a1 = pool.create_actor();
@@ -71,6 +71,58 @@ mod actor_subscribe_system_test {
         let has_cycle = pool.detect_cycle_bfs(a1).unwrap();
 
         assert_eq!(has_cycle, true)
+    }
+
+    #[test]
+    fn test_no_cycle_bfs() {
+        let pool = ActorPool::new();
+
+        let a1 = pool.create_actor();
+        let a2 = pool.create_actor();
+        let a3 = pool.create_actor();
+
+        // Create Cycle : a1 -> a2 -> a3 -> a1
+        pool.subscribe(a1, vec![a2]).unwrap();
+        pool.subscribe(a2, vec![a3]).unwrap();
+
+        let has_cycle = pool.detect_cycle_bfs(a1).unwrap();
+
+        assert_eq!(has_cycle, false)
+    }
+
+    #[test]
+    fn test_detect_cycle_subscribe_dfs() {
+        let pool = ActorPool::new();
+
+        let a1 = pool.create_actor();
+        let a2 = pool.create_actor();
+        let a3 = pool.create_actor();
+
+        // Create Cycle : a1 -> a2 -> a3
+        pool.subscribe(a1, vec![a2]).unwrap();
+        pool.subscribe(a2, vec![a3]).unwrap();
+        pool.subscribe(a3, vec![a1]).unwrap();
+
+        let has_cycle = pool.detect_cycle_dfs(a1).unwrap();
+
+        assert_eq!(has_cycle, true)
+    }
+
+    #[test]
+    fn test_no_cycle_dfs() {
+        let pool = ActorPool::new();
+
+        let a1 = pool.create_actor();
+        let a2 = pool.create_actor();
+        let a3 = pool.create_actor();
+
+        // Create Cycle : a1 -> a2 -> a3
+        pool.subscribe(a1, vec![a2]).unwrap();
+        pool.subscribe(a2, vec![a3]).unwrap();
+
+        let has_cycle = pool.detect_cycle_dfs(a1).unwrap();
+
+        assert_eq!(has_cycle, false)
     }
 
     #[test]
