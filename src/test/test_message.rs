@@ -2,7 +2,7 @@
 mod message_handling_test {
     use std::thread;
 
-    use crate::model::actor::{Actor, ActorPool};
+    use crate::model::actor::ActorPool;
     use crate::model::message::Message;
     use crate::model::state::ActorState;
 
